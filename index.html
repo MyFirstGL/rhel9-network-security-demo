@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RHEL 9 — Network & SELinux Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --term-bg:      #0d1117;
+      --term-surface: #161b22;
+      --term-border:  #30363d;
+      --term-green:   #39d353;
+      --term-cyan:    #58a6ff;
+      --term-yellow:  #e3b341;
+      --term-red:     #f85149;
+      --term-purple:  #bc8cff;
+      --term-orange:  #ff7b4f;
+      --term-gray:    #8b949e;
+      --term-white:   #e6edf3;
+    }
+
+    body {
+      background: #0d1117;
+      font-family: 'IBM Plex Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px 64px;
+    }
+
+    /* ── Page header ── */
+    .page-header {
+      width: 100%;
+      max-width: 860px;
+      margin-bottom: 24px;
+    }
+    .page-header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--term-white);
+      margin-bottom: 4px;
+    }
+    .page-header p {
+      font-size: 13px;
+      color: var(--term-gray);
+    }
+    .header-badges {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .hbadge {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 4px;
+      border: 1px solid;
+    }
+    .hb-blue   { background: rgba(88,166,255,.1);  color: #58a6ff; border-color: rgba(88,166,255,.3); }
+    .hb-green  { background: rgba(57,211,83,.1);   color: #39d353; border-color: rgba(57,211,83,.3); }
+    .hb-purple { background: rgba(188,140,255,.1); color: #bc8cff; border-color: rgba(188,140,255,.3); }
+
+    /* ── Shell card ── */
+    .shell {
+      background: var(--term-bg);
+      border-radius: 12px;
+      border: 1px solid var(--term-border);
+      overflow: hidden;
+      width: 100%;
+      max-width: 860px;
+    }
+
+    /* Title bar */
+    .titlebar {
+      background: var(--term-surface);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--term-border);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-r { background: #f85149; }
+    .dot-y { background: #e3b341; }
+    .dot-g { background: #39d353; }
+    .titlebar-label {
+      color: var(--term-gray);
+      font-size: 12px;
+      margin-left: auto;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Tabs */
+    .tabs {
+      background: var(--term-surface);
+      display: flex;
+      gap: 2px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--term-border);
+    }
+    .tab {
+      padding: 8px 16px;
+      font-size: 12px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--term-gray);
+      border-bottom: 2px solid transparent;
+      transition: .2s;
+    }
+    .tab.active { color: var(--term-cyan); border-bottom-color: var(--term-cyan); }
+    .tab:hover:not(.active) { color: var(--term-white); }
+
+    /* Panels */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Terminal output */
+    .output {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.75;
+      padding: 20px 20px 16px;
+      color: var(--term-white);
+      min-height: 360px;
+      max-height: 460px;
+      overflow-y: auto;
+    }
+    .output::-webkit-scrollbar { width: 6px; }
+    .output::-webkit-scrollbar-track { background: transparent; }
+    .output::-webkit-scrollbar-thumb { background: var(--term-border); border-radius: 3px; }
+
+    /* Syntax colours */
+    .prompt { color: var(--term-green); }
+    .cmd    { color: var(--term-white); }
+    .kw     { color: var(--term-cyan); }
+    .val    { color: var(--term-yellow); }
+    .ok     { color: var(--term-green); }
+    .err    { color: var(--term-red); }
+    .muted  { color: var(--term-gray); }
+    .hl     { color: var(--term-cyan); }
+    .warn   { color: var(--term-orange); }
+
+    /* Blinking cursor */
+    .cursor {
+      display: inline-block;
+      width: 8px; height: 14px;
+      background: var(--term-green);
+      vertical-align: middle;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* Command button bar */
+    .cmds-bar {
+      background: var(--term-surface);
+      border-top: 1px solid var(--term-border);
+      padding: 10px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .section-label {
+      font-size: 11px;
+      color: var(--term-gray);
+      font-family: 'IBM Plex Sans', sans-serif;
+    }
+    .cmd-btn {
+      background: none;
+      border: 1px solid var(--term-border);
+      color: var(--term-gray);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: .15s;
+      white-space: nowrap;
+    }
+    .cmd-btn:hover  { border-color: var(--term-cyan); color: var(--term-cyan); background: rgba(88,166,255,.07); }
+    .cmd-btn:active { transform: scale(.97); }
+
+    /* Custom input line */
+    .input-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px 14px;
+      border-top: 1px solid var(--term-border);
+      background: var(--term-bg);
+    }
+    .input-line input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--term-white);
+    }
+    .input-line input::placeholder { color: var(--term-border); }
+    .run-btn {
+      background: none;
+      border: 1px solid var(--term-green);
+      color: var(--term-green);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 500;
+      transition: .15s;
+    }
+    .run-btn:hover { background: rgba(57,211,83,.1); }
+
+    /* Scenario status sidebar */
+    .sidebar {
+      background: var(--term-surface);
+      border-top: 1px solid var(--term-border);
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .info-card {
+      background: var(--term-bg);
+      border: 1px solid var(--term-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .info-card-label {
+      font-size: 10px;
+      color: var(--term-gray);
+      font-family: 'IBM Plex Sans', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 4px;
+    }
+    .info-card-val {
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--term-white);
+    }
+
+    /* Badges inside output */
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 500;
+      vertical-align: middle;
+    }
+    .badge-green  { background: rgba(57,211,83,.12);  color:#39d353; border:1px solid rgba(57,211,83,.3); }
+    .badge-red    { background: rgba(248,81,73,.12);  color:#f85149; border:1px solid rgba(248,81,73,.3); }
+    .badge-blue   { background: rgba(88,166,255,.12); color:#58a6ff; border:1px solid rgba(88,166,255,.3); }
+
+    /* Footer */
+    .page-footer {
+      margin-top: 28px;
+      font-size: 12px;
+      color: var(--term-gray);
+      text-align: center;
+      line-height: 1.7;
+    }
+    .page-footer a { color: var(--term-cyan); text-decoration: none; }
+    .page-footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <!-- Page header -->
+  <div class="page-header">
+    <h1>RHEL 9 — Network Configuration &amp; Security</h1>
+    <p>Live configuration on <strong>serverM.example.com</strong> — VMware Workstation Pro · ens160 · 192.168.94.134/24</p>
+    <div class="header-badges">
+      <span class="hbadge hb-blue">RHEL 9.4</span>
+      <span class="hbadge hb-green">ens160 · 192.168.94.134/24</span>
+      <span class="hbadge hb-purple">SELinux Targeted Policy</span>
+      <span class="hbadge hb-blue">VMware Workstation Pro</span>
+    </div>
+  </div>
+
+  <!-- Terminal shell -->
+  <div class="shell">
+
+    <div class="titlebar">
+      <span class="dot dot-r"></span>
+      <span class="dot dot-y"></span>
+      <span class="dot dot-g"></span>
+      <span class="titlebar-label">
+        serverM.example.com — root@serverM
+        &nbsp;<span class="badge badge-blue">RHEL 9.4</span>&nbsp;<span class="badge badge-green">VMware Workstation</span>
+      </span>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('nmcli', this)">Network (nmcli)</button>
+      <button class="tab"        onclick="switchTab('selinux', this)">SELinux</button>
+      <button class="tab"        onclick="switchTab('scenario', this)">Live Scenario</button>
+    </div>
+
+    <!-- ══════════ NMCLI PANEL ══════════ -->
+    <div id="tab-nmcli" class="panel active">
+      <div class="output" id="out-nmcli">
+        <span class="muted"># Select a command below to run it — or type your own</span>
+        <span class="cursor"></span>
+      </div>
+      <div class="cmds-bar">
+        <span class="section-label">Connections:</span>
+        <button class="cmd-btn" onclick="runNmcli('show')">nmcli con show</button>
+        <button class="cmd-btn" onclick="runNmcli('device')">nmcli device status</button>
+        <button class="cmd-btn" onclick="runNmcli('add')">Set IP / GW / DNS</button>
+        <button class="cmd-btn" onclick="runNmcli('modify')">Set manual + hostname</button>
+        <button class="cmd-btn" onclick="runNmcli('up')">nmcli con up ens160</button>
+        <button class="cmd-btn" onclick="runNmcli('bond')">Verify full config</button>
+        <button class="cmd-btn" onclick="runNmcli('verify')">ip addr &amp; route</button>
+      </div>
+      <div class="input-line">
+        <span class="prompt">root@serverM ~#&nbsp;</span>
+        <input id="custom-nmcli" placeholder="type a custom nmcli command…"
+               onkeydown="if(event.key==='Enter') runCustom('nmcli')" />
+        <button class="run-btn" onclick="runCustom('nmcli')">Run</button>
+      </div>
+    </div>
+
+    <!-- ══════════ SELINUX PANEL ══════════ -->
+    <div id="tab-selinux" class="panel">
+      <div class="output" id="out-selinux">
+        <span class="muted"># Select a command below to explore SELinux</span>
+        <span class="cursor"></span>
+      </div>
+      <div class="cmds-bar">
+        <span class="section-label">SELinux:</span>
+        <button class="cmd-btn" onclick="runSELinux('status')">getenforce</button>
+        <button class="cmd-btn" onclick="runSELinux('sestatus')">sestatus</button>
+        <button class="cmd-btn" onclick="runSELinux('context')">ls -Z /var/www</button>
+        <button class="cmd-btn" onclick="runSELinux('port')">semanage port -l</button>
+        <button class="cmd-btn" onclick="runSELinux('audit')">ausearch -m AVC</button>
+        <button class="cmd-btn" onclick="runSELinux('fix')">restorecon -Rv</button>
+        <button class="cmd-btn" onclick="runSELinux('boolean')">getsebool -a</button>
+        <button class="cmd-btn" onclick="runSELinux('enforcing')">Set Enforcing</button>
+      </div>
+      <div class="input-line">
+        <span class="prompt">root@serverM ~#&nbsp;</span>
+        <input id="custom-selinux" placeholder="type a selinux command…"
+               onkeydown="if(event.key==='Enter') runCustom('selinux')" />
+        <button class="run-btn" onclick="runCustom('selinux')">Run</button>
+      </div>
+    </div>
+
+    <!-- ══════════ SCENARIO PANEL ══════════ -->
+    <div id="tab-scenario" class="panel">
+      <div class="output" id="out-scenario">
+        <span class="muted"># Walk through a real-world troubleshooting scenario step by step</span>
+        <span class="cursor"></span>
+      </div>
+      <div class="cmds-bar">
+        <span class="section-label">Scenario — Apache can't serve on port 8080:</span>
+        <button class="cmd-btn" onclick="runScenario(0)">1. Check SELinux</button>
+        <button class="cmd-btn" onclick="runScenario(1)">2. Find AVC denial</button>
+        <button class="cmd-btn" onclick="runScenario(2)">3. Add port label</button>
+        <button class="cmd-btn" onclick="runScenario(3)">4. Verify fix</button>
+        <button class="cmd-btn" onclick="runScenario(4)">5. Restart &amp; test</button>
+      </div>
+      <div class="sidebar">
+        <div class="info-card">
+          <div class="info-card-label">SELinux Mode</div>
+          <div class="info-card-val" id="stat-mode"><span class="ok">Enforcing</span></div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">Apache Status</div>
+          <div class="info-card-val" id="stat-apache"><span class="err">Blocked</span></div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">Port 8080 Label</div>
+          <div class="info-card-val" id="stat-port"><span class="warn">unlabeled</span></div>
+        </div>
+        <div class="info-card">
+          <div class="info-card-label">AVC Denials</div>
+          <div class="info-card-val" id="stat-avc"><span class="err">1 found</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /.shell -->
+
+  <div class="page-footer">
+    RHEL 9 Network &amp; Security Demo &nbsp;·&nbsp;
+    Built with nmcli &amp; SELinux &nbsp;·&nbsp;
+    <a href="https://github.com/MyFirstGL/rhel9-network-security-demo" target="_blank">View on GitHub</a>
+  </div>
+
+  <script>
+    /* ── Tab switching ── */
+    function switchTab(name, btn) {
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+    }
+
+    function setOutput(id, html) {
+      const el = document.getElementById(id);
+      el.innerHTML = html;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    /* ── nmcli outputs ── */
+    function runNmcli(cmd) {
+      const outputs = {
+        show: `<span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli con show</span>
+<br><span class="hl">NAME            UUID                                  TYPE      DEVICE</span>
+<span class="ok">ens160          7a2f3b1c-5d4e-4c9a-8e2f-3b1c7a2f3b1c  ethernet  ens160</span>
+<span class="muted">lo              a1b2c3d4-e5f6-7890-abcd-ef1234567890  loopback  lo    </span>
+<br><span class="muted"># ens160 is the VMware VMXNET3 virtual NIC — active on this machine
+# We will configure a static IP on ens160 in the steps below</span>`,
+
+        device: `<span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli device status</span>
+<br><span class="hl">DEVICE  TYPE      STATE      CONNECTION</span>
+<span class="ok">ens160  ethernet  connected  ens160    </span>
+<span class="muted">lo      loopback  unmanaged  --        </span>
+<br><span class="muted"># ens160 is connected — VMware VMXNET3 adapter
+# Currently using DHCP. We will switch to static (manual) next.</span>`,
+
+        add: `<span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli connection modify <span class="val">ens160</span> ipv4.addresses <span class="val">192.168.94.134/24</span></span>
+<br><span class="ok">Connection 'ens160' successfully modified.</span>
+<br><span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli connection modify <span class="val">ens160</span> ipv4.gateway <span class="val">192.168.94.2</span></span>
+<br><span class="ok">Connection 'ens160' successfully modified.</span>
+<br><span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli connection modify <span class="val">ens160</span> ipv4.dns <span class="val">192.168.94.2</span></span>
+<br><span class="ok">Connection 'ens160' successfully modified.</span>
+<br><span class="muted"># Static IP:  192.168.94.134/24  (VMware NAT subnet)
+# Gateway:    192.168.94.2        (VMware virtual gateway)
+# DNS:        192.168.94.2        (same as gateway — typical in VMware NAT)
+# Changes are staged but not active yet — ipv4.method must be set to manual</span>`,
+
+        modify: `<span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli connection modify <span class="val">ens160</span> ipv4.method <span class="val">manual</span></span>
+<br><span class="ok">Connection 'ens160' successfully modified.</span>
+<br><span class="prompt">root@serverM ~#</span> <span class="cmd">hostnamectl set-hostname <span class="val">serverM.example.com</span></span>
+<br><span class="ok">Hostname set to: serverM.example.com</span>
+<br><span class="prompt">root@serverM ~#</span> <span class="cmd">hostnamectl status</span>
+<span class="hl">   Static hostname: serverM.example.com</span>
+<span class="muted">         Icon name: computer-vm</span>
+<span class="muted">           Chassis: vm</span>
+<span class="muted">        Machine ID: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4</span>
+<span class="muted">           Boot ID: f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4</span>
+<span class="muted">  Operating System: Red Hat Enterprise Linux 9.4 (Plow)</span>
+<span class="muted">       CPE OS Name: cpe:/o:redhat:enterprise_linux:9</span>
+<span class="muted">            Kernel: Linux 5.14.0-427.13.1.el9_4.x86_64</span>
+<span class="muted">      Architecture: x86-64</span>
+<br><span class="muted"># ipv4.method manual = static (disables DHCP)
+# Hostname is persistent — written to /etc/hostname automatically</span>`,
+
+        up: `<span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli connection up <span class="val">ens160</span></span>
+<br><span class="ok">Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/2)</span>
+<br><span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli con show --active</span>
+<span class="hl">NAME    UUID                                  TYPE      DEVICE</span>
+<span class="ok">ens160  7a2f3b1c-5d4e-4c9a-8e2f-3b1c7a2f3b1c  ethernet  ens160</span>
+<br><span class="muted"># ens160 is now active with the static configuration
+# NetworkManager profile saved to:
+# /etc/NetworkManager/system-connections/ens160.nmconnection</span>`,
+
+        bond: `<span class="prompt">root@serverM ~#</span> <span class="cmd">nmcli con show ens160 | grep ipv4</span>
+<br><span class="hl">ipv4.method:                            manual</span>
+<span class="hl">ipv4.addresses:                         192.168.94.134/24</span>
+<span class="hl">ipv4.gateway:                           192.168.94.2</span>
+<span class="hl">ipv4.dns:                               192.168.94.2</span>
+<span class="muted">ipv4.dns-search:                        --</span>
+<span class="muted">ipv4.never-default:                     no</span>
+<span class="muted">ipv4.ignore-auto-dns:                   no</span>
+<br><span class="muted"># Full static config confirmed on ens160
+# method: manual confirms DHCP is disabled
+# All values match what was configured on this VMware Workstation VM</span>`,
+
+        verify: `<span class="prompt">root@serverM ~#</span> <span class="cmd">ip addr show ens160</span>
+<br><span class="val">2: ens160: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP</span>
+    <span class="muted">link/ether 00:0c:29:ab:cd:ef brd ff:ff:ff:ff:ff:ff</span>
+    <span class="ok">inet 192.168.94.134/24</span> <span class="muted">brd 192.168.94.255 scope global noprefixroute ens160</span>
+    <span class="muted">valid_lft forever preferred_lft forever</span>
+<br><span class="prompt">root@serverM ~#</span> <span class="cmd">ip route show</span>
+<span class="ok">default via 192.168.94.2 dev ens160 proto static metric 100</span>
+<span class="muted">192.168.94.0/24 dev ens160 proto kernel scope link src 192.168.94.134</span>
+<br><span class="muted"># 'forever' = static address confirmed (no DHCP lease expiry)
+# Default route via 192.168.94.2 — VMware NAT gateway is reachable</span>`
+      };
+      setOutput('out-nmcli', outputs[cmd]);
+    }
+
+    /* ── SELinux outputs ── */
+    function runSELinux(cmd) {
+      const outputs = {
+        status: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">getenforce</span>
+<br><span class="ok">Enforcing</span>
+<br><span class="muted"># Three possible states:
+#   Enforcing  — policy is active, denials are blocked and logged
+#   Permissive — policy is active, denials are only logged (safe for testing)
+#   Disabled   — SELinux is completely off (requires reboot to change)</span>`,
+
+        sestatus: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">sestatus</span>
+<br><span class="hl">SELinux status:                 enabled</span>
+<span class="ok">SELinuxfs mount:                /sys/fs/selinux</span>
+<span class="val">Loaded policy name:             targeted</span>
+<span class="ok">Current mode:                   enforcing</span>
+<span class="ok">Mode from config file:          enforcing</span>
+<span class="muted">Policy MLS status:              enabled</span>
+<span class="muted">Policy deny_unknown status:     allowed</span>
+<span class="hl">Memory protection checking:     actual (secure)</span>
+<span class="muted">Max kernel policy version:      33</span>
+<br><span class="muted"># 'targeted' policy protects key network daemons (httpd, sshd, etc.)
+# Config file: /etc/selinux/config — changes persist across reboots</span>`,
+
+        context: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">ls -Z /var/www/html/</span>
+<br><span class="muted">unconfined_u:object_r:</span><span class="ok">httpd_sys_content_t</span><span class="muted">:s0 index.html</span>
+<span class="muted">unconfined_u:object_r:</span><span class="ok">httpd_sys_content_t</span><span class="muted">:s0 assets/</span>
+<br><span class="muted"># SELinux context format: user:role:type:level
+#   type = httpd_sys_content_t  ← Apache can READ this
+# Files copied from /tmp often get wrong context — use restorecon to fix</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">ls -Z /tmp/misplaced.html</span>
+<span class="muted">unconfined_u:object_r:</span><span class="err">user_tmp_t</span><span class="muted">:s0 /tmp/misplaced.html</span>
+<span class="err"># Apache CANNOT serve this — wrong context. Use restorecon to fix.</span>`,
+
+        port: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">semanage port -l | grep http</span>
+<br><span class="hl">http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8443, 9000</span>
+<span class="muted">http_cache_port_t              tcp      8080, 8118, 8123, 10001-10010</span>
+<br><span class="muted"># httpd can ONLY bind ports labeled http_port_t or http_cache_port_t
+# To add a custom port:  semanage port -a -t http_port_t -p tcp 8081</span>`,
+
+        audit: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">ausearch -m AVC -ts recent | grep httpd</span>
+<br><span class="err">type=AVC msg=audit(1712345678.123:501): avc:  denied  { name_bind } for  pid=2341</span>
+<span class="err">  comm="httpd"  scontext=system_u:system_r:<span class="warn">httpd_t</span>:s0</span>
+<span class="err">  tcontext=system_u:object_r:<span class="warn">unreserved_port_t</span>:s0  tclass=tcp_socket permissive=0</span>
+<br><span class="muted"># AVC = Access Vector Cache — the SELinux denial log
+# 'name_bind' = httpd tried to bind a socket to an unlabeled port → DENIED
+# Fix: add the correct port label with semanage (see port button)</span>`,
+
+        fix: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">restorecon -Rv /var/www/html/</span>
+<br><span class="ok">Relabeled /var/www/html/misplaced.html from user_tmp_t to httpd_sys_content_t</span>
+<span class="ok">Relabeled /var/www/html/uploads/ from user_tmp_t to httpd_sys_content_t</span>
+<br><span class="muted"># restorecon resets file contexts to what the policy expects
+# -R = recursive,  -v = verbose (show what changed)
+# Always run after copying files into a web root</span>`,
+
+        boolean: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">getsebool -a | grep httpd</span>
+<br><span class="val">httpd_anon_write</span>             <span class="muted">--&gt;</span> <span class="err">off</span>
+<span class="val">httpd_can_network_connect</span>    <span class="muted">--&gt;</span> <span class="err">off</span>
+<span class="val">httpd_can_network_connect_db</span> <span class="muted">--&gt;</span> <span class="err">off</span>
+<span class="val">httpd_can_sendmail</span>           <span class="muted">--&gt;</span> <span class="err">off</span>
+<span class="val">httpd_use_nfs</span>                <span class="muted">--&gt;</span> <span class="err">off</span>
+<br><span class="muted"># Booleans toggle specific policy rules without recompiling
+# Enable persistently:  setsebool -P httpd_can_network_connect on
+# -P = permanent (survives reboots). Without -P, resets on reboot.</span>`,
+
+        enforcing: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">setenforce 1</span>
+<br><span class="ok">SELinux mode set to Enforcing.</span>
+<br><span class="muted"># setenforce 0 = Permissive  (live change, no reboot)
+# setenforce 1 = Enforcing   (live change, no reboot)
+# To persist across reboots edit /etc/selinux/config:</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">cat /etc/selinux/config | grep ^SELINUX=</span>
+<span class="ok">SELINUX=enforcing</span>`
+      };
+      setOutput('out-selinux', outputs[cmd]);
+    }
+
+    /* ── Scenario steps ── */
+    const scenarios = [
+      {
+        out: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">systemctl start httpd</span>
+<br><span class="err">Job for httpd.service failed. See 'journalctl -xe' for details.</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">journalctl -u httpd -n 5</span>
+<span class="err">(13)Permission denied: AH00072: make_sock: could not bind to address 0.0.0.0:8080</span>
+<br><span class="muted"># Apache is configured to listen on port 8080 in /etc/httpd/conf/httpd.conf
+# Permission denied here = SELinux blocking the bind (not a firewall issue)
+# Next: check the AVC denial log to confirm</span>`
+      },
+      {
+        out: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">ausearch -m AVC -ts today | tail -8</span>
+<br><span class="err">type=AVC msg=audit(1712345900.001:601): avc:  denied  { name_bind }</span>
+<span class="err">  pid=4421 comm="httpd" lport=8080</span>
+<span class="err">  scontext=system_u:system_r:<span class="warn">httpd_t</span>:s0</span>
+<span class="err">  tcontext=system_u:object_r:<span class="warn">unreserved_port_t</span>:s0 tclass=tcp_socket</span>
+<br><span class="muted"># Confirmed: httpd_t tried to bind port labeled 'unreserved_port_t'
+# httpd_t is NOT allowed to bind that label — SELinux blocked it
+# Fix: label port 8080 as http_port_t using semanage</span>`,
+        avc: `<span class="err">1 found</span>`
+      },
+      {
+        out: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">semanage port -a -t <span class="ok">http_port_t</span> -p tcp <span class="val">8080</span></span>
+<br><span class="ok">Port 8080/tcp successfully labeled as http_port_t</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">semanage port -l | grep 8080</span>
+<span class="ok">http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8080, 8443, 9000</span>
+<br><span class="muted"># 8080 now in http_port_t — httpd_t is allowed to bind these ports
+# Persistent: stored in /etc/selinux/targeted/contexts/files/</span>`,
+        port: `<span class="ok">http_port_t</span>`
+      },
+      {
+        out: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">semanage port -l | grep http_port_t</span>
+<span class="ok">http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8080, 8443, 9000</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">ausearch -m AVC -ts today | grep 8080</span>
+<span class="ok">&lt;no matches found&gt;</span>
+<br><span class="ok"># No new AVC denials for port 8080 — label is correct. Ready to restart.</span>`,
+        avc: `<span class="ok">0 denials</span>`
+      },
+      {
+        out: `<span class="prompt">root@rhel9 ~#</span> <span class="cmd">systemctl restart httpd</span>
+<br><span class="ok">● httpd started successfully</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">systemctl status httpd | head -5</span>
+<span class="ok">● httpd.service - The Apache HTTP Server</span>
+<span class="ok">     Loaded: loaded (/usr/lib/systemd/system/httpd.service; enabled)</span>
+<span class="ok">     Active: active (running) since Sun 2024-04-05 14:22:01 UTC; 3s ago</span>
+<br><span class="prompt">root@rhel9 ~#</span> <span class="cmd">curl -s -o /dev/null -w "%{http_code}" localhost:8080</span>
+<span class="ok">200</span>
+<br><span class="ok"># Apache is now serving on port 8080.
+# Root cause: missing SELinux port label.
+# Fix applied: semanage port -a -t http_port_t -p tcp 8080
+# No disabling of SELinux was required — policy was properly extended.</span>`,
+        apache: `<span class="ok">Running :8080</span>`
+      }
+    ];
+
+    function runScenario(step) {
+      const s = scenarios[step];
+      setOutput('out-scenario', s.out);
+      if (s.avc)    document.getElementById('stat-avc').innerHTML    = s.avc;
+      if (s.port)   document.getElementById('stat-port').innerHTML   = s.port;
+      if (s.apache) document.getElementById('stat-apache').innerHTML = s.apache;
+    }
+
+    /* ── Custom command handler ── */
+    function runCustom(tab) {
+      const inp = document.getElementById('custom-' + tab);
+      const v = inp.value.trim();
+      if (!v) return;
+      const html = `<span class="prompt">root@serverM ~#</span> <span class="cmd">${v.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>
+<br><span class="muted"># This is a simulated demo environment.
+# In a real RHEL 9 system this command would execute live.
+# Try the preset buttons above to see realistic output.</span>`;
+      setOutput('out-' + tab, html);
+      inp.value = '';
+    }
+  </script>
+
+</body>
+</html>
